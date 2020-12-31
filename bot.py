@@ -1,6 +1,7 @@
 import requests as requests
 from globals import TOKEN 
-import getMatches as match
+import availableMatches as match
+import re
 url = "https://api.telegram.org/bot"+TOKEN
 
 # Function to get the chat id
@@ -34,8 +35,13 @@ def main():
         update = last_update(url)
         if update_id == update["update_id"]:
             if get_message_text(update).lower() == "hi" or get_message_text(update).lower() == "hello":
-                send_message(get_chat_id(update), 'Hello welcome to CricAlert Bot. Here is the list of Live matches available')
+                send_message(get_chat_id(update), 'Hello welcome to CricAlert Bot. Here is the list of Live matches available' + match.show_current())
+                while (not get_message_text(update).isnumeric()) and int(get_message_text(update)) > len(match.title_match): 
+                    update = last_update(url)
+                send_message(get_chat_id(update),"You have choosen option" + get_message_text(update))
+                update_id=update["update_id"]
+               
             else:
-                send_message(get_chat_id(update),"Sorry cant understand")
+                send_message(get_chat_id(update),"Sorry, I couldn't understand your message :(")
             update_id +=1
 main()
