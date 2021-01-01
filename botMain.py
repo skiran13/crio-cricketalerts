@@ -2,7 +2,7 @@ from telegram.ext import Updater,MessageHandler, Filters, CommandHandler,Convers
 from pycricbuzz import Cricbuzz
 import json
 from globals import TOKEN
-import getMatches as match
+import availableMatches as match
 import logging
 
 # Initializing job queue as None
@@ -37,25 +37,28 @@ def get_match(update, context):
     matchTitle = match.matchTitles[matchNumber-1]
     matchLink = match.matchLinks[matchNumber-1]
     context.bot.send_message(chat_id=update.effective_chat.id, text="Displaying details of match: " + matchTitle)
-    match_updates(matchLink, context)
+    match_updates(matchLink, update, context)
     return ConversationHandler.END
 
 # Function used to send updates to the user according to the satus of the match
-def match_updates(link, context):
+def match_updates(link, update, context):
     matchID = link.split('/')[2]
     c = Cricbuzz()
     minfo = c.matchinfo(matchID)
     if minfo["mchstate"] == "preview":
         reply = 'Match has not started yet. Match will start at '+ minfo['start_time'] + 'Please send a request after the match has started\nSend /live to view other matches'
-        context.message.reply_text(reply)
+        update.message.reply_text(reply)
     elif minfo['mchstate'] == "complete" or minfo['mchstate'] == "stump" or minfo['mchstate'] == "mom":
-        reply = 'Match is over and '+ minfo['status'] + '\nSend /live to view other matches'
-        context.message.reply_text(reply)
+        reply = 'Match is over and '+ minfo['status'] 
+        update.message.reply_text(reply)
+        lscore = c.livescore(matchID)
+        reply = 'Final Score: ' + lscore['batting']['score'][0]['runs'] + '/' + lscore['batting']['score'][0]['wickets'] + ' in ' + lscore['batting']['score'][0]['overs'] + ' overs' + '\nSend /live to view other matches'
+        update.message.reply_text(reply)
     else:
-        context.message.reply_text(minfo['toss'])
+        update.message.reply_text(minfo['toss'])
         lscore = c.livescore(matchID)
         reply = 'Current Score: ' + lscore['batting']['score'][0]['runs'] + '/' + lscore['batting']['score'][0]['wickets'] + ' in ' + lscore['batting']['score'][0]['overs'] + ' overs'
-        context.message.reply_text(reply)
+        update.message.reply_text(reply)
         global job, jobQueue
         job = jobQueue.run_repeating(live_updates, interval=10, first=0) # Runs a repeating call to live_updates which checks for events such as boundaries and wickets
 
