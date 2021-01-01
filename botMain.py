@@ -1,12 +1,13 @@
 from telegram.ext import Updater,MessageHandler, Filters, CommandHandler,ConversationHandler,RegexHandler
 from pycricbuzz import Cricbuzz
+import requests
 import json
 from globals import TOKEN
 import availableMatches as match
 import logging
 
 # Initializing job queue as None
-jobQueue, job = None, None
+jobQueue, job, length = None, None, 0
 
 # Logging information enabled
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',level=logging.INFO)
@@ -37,8 +38,8 @@ def get_match(update, context):
     matchTitle = match.matchTitles[matchNumber-1]
     matchLink = match.matchLinks[matchNumber-1]
     context.bot.send_message(chat_id=update.effective_chat.id, text="Displaying details of match: " + matchTitle)
-    match_updates(matchLink, update, context)
-    return ConversationHandler.END
+    return match_updates(matchLink, update, context)
+    
 
 # Function used to send updates to the user according to the satus of the match
 def match_updates(link, update, context):
@@ -46,25 +47,48 @@ def match_updates(link, update, context):
     c = Cricbuzz()
     minfo = c.matchinfo(matchID)
     if minfo["mchstate"] == "preview":
-        reply = 'Match has not started yet. Match will start at '+ minfo['start_time'] + 'Please send a request after the match has started\nSend /live to view other matches'
+        reply = 'Match has not started yet. Match will start at '+ minfo['start_time'] + '\nPlease send a request after the match has started\nSend /live to view other matches'
         update.message.reply_text(reply)
+        return LIVE_LIST
     elif minfo['mchstate'] == "complete" or minfo['mchstate'] == "stump" or minfo['mchstate'] == "mom":
         reply = 'Match is over and '+ minfo['status'] 
         update.message.reply_text(reply)
         lscore = c.livescore(matchID)
         reply = 'Final Score: ' + lscore['batting']['score'][0]['runs'] + '/' + lscore['batting']['score'][0]['wickets'] + ' in ' + lscore['batting']['score'][0]['overs'] + ' overs' + '\nSend /live to view other matches'
         update.message.reply_text(reply)
+        return LIVE_LIST
+    elif minfo['mchstate'] == "toss":
+        update.message.reply_text(minfo['toss'])
+        reply = 'Match has not started yet. Match will start at '+ minfo['start_time'] + '\nPlease send a request after the match has started\nSend /live to view other matches'
+        update.message.reply_text(reply)
+        return LIVE_LIST
     else:
         update.message.reply_text(minfo['toss'])
         lscore = c.livescore(matchID)
         reply = 'Current Score: ' + lscore['batting']['score'][0]['runs'] + '/' + lscore['batting']['score'][0]['wickets'] + ' in ' + lscore['batting']['score'][0]['overs'] + ' overs'
         update.message.reply_text(reply)
-        global job, jobQueue
-        job = jobQueue.run_repeating(live_updates, interval=10, first=0) # Runs a repeating call to live_updates which checks for events such as boundaries and wickets
+        global job, jobQueue, length
+        data = requests.get('http://mapps.cricbuzz.com/cbzios/match/'+ matchID + '/highlights.json').json()
+        length = len(data["comm_lines"])
+        job = jobQueue.run_repeating(live_updates, interval=10, first=0, context={"update":update, "matchID":matchID}) # Runs a repeating call to live_updates which checks for events such as boundaries and wickets
+        return ConversationHandler.END
 
-# TODO: Logic to trigger event for boundaries and wickets
-def live_updates(update,context):
-    pass
+# Function to trigger event for boundaries and wickets
+def live_updates(bot):
+    data = requests.get('http://mapps.cricbuzz.com/cbzios/match/'+ bot.job.context["matchID"] + '/highlights.json').json()
+    global length
+    if length < len(data["comm_lines"]):
+        if data["comm_lines"][0]["evt"] == "wicket":
+            reply = "It's a wicket.\nCurrent Score: " + data["comm_lines"][0]["score"] + " in " + data["comm_lines"][0]["o_no"] + " overs."
+            bot.job.context["update"].message.reply_text(reply)
+        elif data["comm_lines"][0]["evt"] == "four":
+            reply = "It's a boundary.\nCurrent Score: " + data["comm_lines"][0]["score"] + " in " + data["comm_lines"][0]["o_no"] + " overs."
+            bot.job.context["update"].message.reply_text(reply)
+        elif data["comm_lines"][0]["evt"] == "six":
+            reply = "It's a Huge Six.\nCurrent Score: " + data["comm_lines"][0]["score"] + " in " + data["comm_lines"][0]["o_no"] + " overs."
+            bot.job.context["update"].message.reply_text(reply)
+        length+=1
+
 
 # Function to resond for messages which are out of the scope of the bot
 def unknown(update, context):
@@ -75,9 +99,9 @@ def cancel(update, context):
     user = update.message.from_user
     logging.info("User %s canceled the conversation.", user.first_name)
     global job
-    job.schedule_removal()
-    update.message.reply_text('Bye! To start again, send /start command.', reply_markup=ReplyKeyboardRemove())
-
+    if(job!= None):
+        job.schedule_removal()
+    update.message.reply_text('Bye! To start again, send /start command.')
     return ConversationHandler.END
 
 def main():
@@ -104,7 +128,7 @@ def main():
     
     # Command to activate the bot
     updater.start_polling()
-
+    updater.dispatcher.add_handler(CommandHandler('cancel',cancel))
     # Run the bot until Ctrl+C is pressed
     updater.idle()
 
