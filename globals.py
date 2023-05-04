@@ -1,2 +1,0 @@
-TOKEN="1408993256:AAHDNfcNQoeFzyf2X1nMU5BhBa7Q1ehft0o"
-USERNAME="cricalertsbot"
